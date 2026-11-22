@@ -44,6 +44,13 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .photo img{width:100%;height:100%;object-fit:cover;display:block;max-width:none}
 .photo .price{position:absolute;left:12px;bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
 .photo .badge{position:absolute;right:12px;top:12px}
+.fav{position:absolute;left:10px;top:10px;width:38px;height:38px;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;background:rgba(0,0,0,.45);color:#fff;font-size:20px;line-height:1;transition:transform .15s}
+.fav:hover{transform:scale(1.1)}
+.fav[aria-pressed="true"]{background:#d6304a}
+.gone{position:absolute;inset:auto 0 0 0;background:rgba(0,0,0,.65);color:#fff;font-size:12px;padding:4px 10px;text-align:center}
+.chk{flex-direction:row;align-items:center;gap:8px;cursor:pointer;padding-bottom:9px}
+.chk input{width:18px;height:18px;accent-color:#d6304a;margin:0}
+.chk b{font-family:var(--mono);color:var(--fg)}
 .card:hover{border-color:var(--accent);transform:translateY(-2px)}
 .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .price{font-family:var(--display);font-weight:800;font-size:22px;background:var(--tag);color:var(--tag-fg);padding:2px 10px;border-radius:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -85,6 +92,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     <option value="km">Najmenej km</option>
     <option value="y">Najnovšie ročníky</option>
   </select></label>
+  <label class="chk" for="onlyfav"><input type="checkbox" id="onlyfav"> ♥ Len uložené (<b id="favn">0</b>)</label>
 </div></div>
 
 <main class="wrap">
@@ -105,22 +113,39 @@ function score(o){
 const IDS=['q','minp','maxp','maxk','miny','sort'];
 function save(){try{localStorage.setItem('filtre20',JSON.stringify(Object.fromEntries(IDS.map(id=>[id,$(id).value]))))}catch(e){}}
 function restore(){try{const f=JSON.parse(localStorage.getItem('filtre20')||'{}');IDS.forEach(id=>{if(f[id]!=null)$(id).value=f[id]})}catch(e){}}
+/* ---- Uložené (obľúbené) inzeráty: v prehliadači tohto zariadenia ---- */
+let favs={};
+try{favs=JSON.parse(localStorage.getItem('oblubene')||'{}')}catch(e){favs={}}
+function saveFavs(){try{localStorage.setItem('oblubene',JSON.stringify(favs))}catch(e){}; $('favn').textContent=Object.keys(favs).length}
+function toggleFav(o,btn){
+  if(favs[o.u]) delete favs[o.u];
+  else { const {s,best,...copy}=o; favs[o.u]={...copy,savedAt:Date.now()}; }
+  saveFavs();
+  if($('onlyfav').checked) render(); else { btn.setAttribute('aria-pressed',!!favs[o.u]); btn.textContent=favs[o.u]?'♥':'♡'; }
+}
+function favList(){
+  const byUrl=Object.fromEntries(data.map(o=>[o.u,o]));
+  return Object.values(favs).map(f=>byUrl[f.u]||{...f,s:score(f),gone:true});
+}
 function render(ev){
   let lo=+$('minp').value, hi=+$('maxp').value;
   if(lo>hi){ if(ev&&ev.target.id==='minp'){$('maxp').value=lo;hi=lo}else{$('minp').value=hi;lo=hi} }
   const q=$('q').value.trim().toLowerCase(), mp=hi, mk=+$('maxk').value, my=+$('miny').value, s=$('sort').value;
   $('minpo').textContent=fmt(lo)+' €'; $('maxpo').textContent=fmt(mp)+' €'; $('maxko').textContent=fmt(mk)+' km';
   save();
-  let r=data.filter(o=>o.p>=lo&&o.p<=mp&&o.km<=mk&&(!my||(o.y&&o.y>=my))&&(!q||(o.t+' '+o.d).toLowerCase().includes(q)));
+  const only=$('onlyfav').checked;
+  let r= only
+    ? favList().filter(o=>!q||(o.t+' '+o.d).toLowerCase().includes(q))
+    : data.filter(o=>o.p>=lo&&o.p<=mp&&o.km<=mk&&(!my||(o.y&&o.y>=my))&&(!q||(o.t+' '+o.d).toLowerCase().includes(q)));
   const cmp={score:(a,b)=>a.s-b.s,p:(a,b)=>a.p-b.p,km:(a,b)=>a.km-b.km,y:(a,b)=>(b.y||0)-(a.y||0)}[s];
   r.sort(cmp);
-  $('count').innerHTML=`Zobrazených <b>${r.length}</b> z ${data.length} ponúk`;
+  $('count').innerHTML= only ? `Uložených <b>${r.length}</b> áut (filtre ceny, km a roku sa tu nepoužívajú)` : `Zobrazených <b>${r.length}</b> z ${data.length} ponúk`;
   const g=$('grid'); g.textContent='';
-  if(!r.length){g.innerHTML='<div class="empty">Týmto filtrom nezodpovedá žiadna ponuka. Skús zvýšiť cenu alebo nájazd.</div>';return}
+  if(!r.length){g.innerHTML= only ? '<div class="empty">Zatiaľ nemáš nič uložené. Klikni na ♡ v rohu fotky pri aute, ktoré sa ti páči.</div>' : '<div class="empty">Týmto filtrom nezodpovedá žiadna ponuka. Skús zvýšiť cenu alebo nájazd.</div>';return}
   const frag=document.createDocumentFragment();
   for(const o of r){
     const a=document.createElement('a'); a.className='card'; a.href=o.u; a.target='_blank'; a.rel='noopener';
-    a.innerHTML=`<div class="photo">${o.img?`<img src="${o.img}" alt="" loading="lazy" referrerpolicy="no-referrer">`:''}<span class="price">${fmt(o.p)} €</span>${o.best?'<span class="badge">Výhodná</span>':''}</div>
+    a.innerHTML=`<div class="photo">${o.img?`<img src="${o.img}" alt="" loading="lazy" referrerpolicy="no-referrer">`:''}<span class="price">${fmt(o.p)} €</span>${o.best&&!o.gone?'<span class="badge">Výhodná</span>':''}<button type="button" class="fav" aria-label="Uložiť auto" aria-pressed="${!!favs[o.u]}">${favs[o.u]?'♥':'♡'}</button>${o.gone?'<span class="gone">Už nie je v aktuálnej ponuke</span>':''}</div>
       <h2></h2>
       <div class="specs"><span><i>km</i><b class="${o.km>220000?'km-hi':''}">${fmt(o.km)}</b></span>${o.y?`<span><i>rok</i><b>${o.y}</b></span>`:''}</div>
       <p class="desc"></p>
@@ -128,6 +153,8 @@ function render(ev){
     a.querySelector('h2').textContent=o.t;
     a.querySelector('.desc').textContent=o.d;
     a.querySelector('.loc span').textContent=o.l;
+    const fb=a.querySelector('.fav');
+    fb.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleFav(o,fb)});
     frag.appendChild(a);
   }
   g.appendChild(frag);
@@ -146,6 +173,8 @@ function useData(d){
   for(let y=2024;y>=2000;y-=2){const op=document.createElement('option');op.value=y;op.textContent=y;sel.appendChild(op)}
   restore();
   IDS.forEach(id=>$(id).addEventListener('input',render));
+  $('onlyfav').addEventListener('change',render);
+  saveFavs();
 })();
 fetch('data.json',{cache:'no-store'}).then(r=>r.json()).then(d=>{
   useData(d);
